@@ -1,0 +1,13 @@
+infoblox:
+    master: infoblox-host
+    username: infoblox-user
+    password: infoblox-password
+    view: default
+
+nameserver:
+    hostname: ns.example.com
+    format: bind
+    config: named.conf
+    path: /var/named/slave
+    master: 10.0.0.1
+    tsig: tsig.example.com
