@@ -8,4 +8,5 @@ expect, and you should always test carefully before any production use.
 
 ## Programs
 
-- infoblox2nsconf.pl -- Infoblox to NS Configuration Converter
+- infoblox2nsconf.pl - Build BIND/NSD configuration files based on Infoblox
+  configuration.
