@@ -33,7 +33,8 @@ use strict;
 use Data::Dumper;
 use Pod::Usage;
 use Getopt::Long;
-use Infoblox;
+use Infoblox;    # fetched from
+                 # https://appliance/api/dist/CPAN/authors/id/INFOBLOX/
 use YAML 'LoadFile';
 
 my $cfdata    = undef;    # Global configuration data
