@@ -240,7 +240,7 @@ sub print_config_zone ($) {
         return;
     }
 
-    if ($cfdata->{nameserver}->{format} eq "nsd") {
+    if ($nsconf->{format} eq "nsd") {
         printf("# %s\n", $zone->{name});
         printf("zone:\n");
 
