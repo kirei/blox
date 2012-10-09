@@ -76,8 +76,23 @@ sub main {
         $cfdata->{infoblox}->{view} = "default";
     }
 
-    my $hostname = $cfdata->{nameserver}->{hostname};
-    my $config   = $cfdata->{nameserver}->{config};
+    if ($cfdata->{nameservers}) {
+        for my $ns (sort keys %{ $cfdata->{nameservers} }) {
+            process_nameserver($cfdata->{nameservers}->{$ns});
+        }
+    } else {
+        process_nameserver($cfdata->{nameserver});
+    }
+}
+
+# process single nameserver
+sub process_nameserver ($) {
+    my $nsconf = shift;
+
+    my $hostname = $nsconf->{hostname};
+    my $config   = $nsconf->{config};
+
+    print_info("# exporting data for $hostname");
 
     ## Find zones served by my name server groups
     my @zones = find_zones($hostname);
@@ -86,7 +101,7 @@ sub main {
     select(CONFIG);
 
     foreach my $z (@zones) {
-        print_config_zone($z);
+        print_config_zone($z, $nsconf);
     }
     select(STDOUT);
 
@@ -193,19 +208,19 @@ sub zonename2filename ($) {
 # Print zone configuration sniplet
 #
 sub print_config_zone ($) {
-    my $zone = shift;
+    my $zone   = shift;
+    my $nsconf = shift;
 
-    my $name = $zone->{display_domain};
-    my $filename =
-      sprintf("%s/%s", $cfdata->{nameserver}->{path}, zonename2filename($name));
-    my @masters = ();
+    my $name     = $zone->{display_domain};
+    my $filename = sprintf("%s/%s", $nsconf->{path}, zonename2filename($name));
+    my @masters  = ();
 
-    push @masters, $cfdata->{nameserver}->{master};
-    my $tsig = $cfdata->{nameserver}->{tsig};
+    push @masters, $nsconf->{master};
+    my $tsig = $nsconf->{tsig};
 
     print_info(sprintf("%s (%s)", $name, $zone->{name}));
 
-    if ($cfdata->{nameserver}->{format} eq "bind") {
+    if ($nsconf->{format} eq "bind") {
 
         printf("# %s\n",          $zone->{name});
         printf("zone \"%s\" {\n", $name);
