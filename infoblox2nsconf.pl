@@ -37,17 +37,18 @@ use Infoblox;    # fetched from
                  # https://appliance/api/dist/CPAN/authors/id/INFOBLOX/
 use YAML 'LoadFile';
 
-my $cfdata    = undef;    # Global configuration data
-my $session   = undef;    # Session handle
-my $opt_debug = 0;
+my $cfdata      = undef;    # Global configuration data
+my $session     = undef;    # Session handle
+my $opt_verbose = 0;
 
 sub main {
     my $opt_help   = undef;
     my $opt_config = "infoblox2nsconf.yaml";
 
+    Getopt::Long::Configure("bundling");
     GetOptions(
-        'help|?' => \$opt_help,
-        'debug'  => \$opt_debug
+        'help|h|?'   => \$opt_help,
+        'verbose|v+' => \$opt_verbose,
     ) or pod2usage(2);
     pod2usage(1) if ($opt_help);
     pod2usage(2) if ($#ARGV > 0);
@@ -96,7 +97,7 @@ sub main {
 sub find_nsgroups ($) {
     my $hostname = shift;
 
-    debug("Finding NS groups for $hostname");
+    print_debug("Finding NS groups for $hostname");
 
     my %result = ();
     my @nsgroups = $session->search(object => "Infoblox::Grid::DNS::Nsgroup");
@@ -117,7 +118,7 @@ sub find_zones ($) {
     # find NS groups
     my @nsgroups = find_nsgroups($hostname);
 
-    debug("Extrating zones for $hostname");
+    print_debug("Extrating zones for $hostname");
 
     my @result = ();
 
@@ -159,21 +160,23 @@ sub is_nameserver ($$$) {
     if (defined $zone->{ns_group}) {
         foreach my $g (@{$nsgroups}) {
             if ($zone->{ns_group} eq $g) {
-                debug(
+                print_debug(
                     sprintf("Include %s - is in one of our NS groups", $zname));
                 return 1;
             }
         }
-        debug(sprintf("Exclude %s - is not in one of our NS groups", $zname));
+        print_debug(
+            sprintf("Exclude %s - is not in one of our NS groups", $zname));
         return 0;
     }
 
     if (is_secondary($hostname, $zone->{secondaries})) {
-        debug(sprintf("Include %s - we are explicitly listed as NS", $zname));
+        print_debug(
+            sprintf("Include %s - we are explicitly listed as NS", $zname));
         return 1;
     }
 
-    debug(sprintf("Exclude %s - we are not NS", $zname));
+    print_debug(sprintf("Exclude %s - we are not NS", $zname));
     return 0;
 }
 
@@ -199,6 +202,8 @@ sub print_config_zone ($) {
 
     push @masters, $cfdata->{nameserver}->{master};
     my $tsig = $cfdata->{nameserver}->{tsig};
+
+    print_info(sprintf("%s (%s)", $name, $zone->{name}));
 
     if ($cfdata->{nameserver}->{format} eq "bind") {
 
@@ -241,10 +246,16 @@ sub print_config_zone ($) {
     die "Unknown configuration format";
 }
 
-# print debug messages
-sub debug ($) {
+# print informational messages
+sub print_info ($) {
     my $message = shift;
-    printf STDERR ("%s\n", $message) if ($opt_debug);
+    printf STDERR ("%s\n", $message) if ($opt_verbose);
+}
+
+# print debug messages
+sub print_debug ($) {
+    my $message = shift;
+    printf STDERR ("DEBUG: %s\n", $message) if ($opt_verbose > 1);
 }
 
 main();
@@ -262,5 +273,4 @@ infoblox2nsconf.pl [options] [infoblox2nsconf.yaml]
 Options:
 
  --help           brief help message
- --debug          enable debug output
- 
+ --verbose        enable verbose output (may be used multiple times)
