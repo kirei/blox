@@ -76,6 +76,7 @@ sub main {
         $cfdata->{infoblox}->{view} = "default";
     }
 
+    # support both a single and multiple nameservers
     if ($cfdata->{nameservers}) {
         for my $ns (sort keys %{ $cfdata->{nameservers} }) {
             process_nameserver($cfdata->{nameservers}->{$ns});
