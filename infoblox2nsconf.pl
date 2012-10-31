@@ -234,7 +234,7 @@ sub print_config_zone ($) {
         }
         printf("\tmasters { %s; };\n", join(";", @mdef));
 
-        printf("}\n");
+        printf("};\n");
         printf("\n");
 
         return;
