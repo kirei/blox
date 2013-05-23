@@ -36,7 +36,7 @@ use Getopt::Long;
 use Infoblox;    # fetched from
                  # https://appliance/api/dist/CPAN/authors/id/INFOBLOX/
 use YAML 'LoadFile';
-use Net::IDN::Encode ':all';
+use Net::LibIDN ':all';
 
 my $cfdata      = undef;    # Global configuration data
 my $session     = undef;    # Session handle
@@ -172,7 +172,7 @@ sub is_nameserver ($$$) {
     my $zone     = shift;       # reference to zone object to check
     my $nsgroups = shift;       # reference to array of NS groups
 
-    my $zname = domain_to_ascii($zone->name);
+    my $zname = idn_to_ascii($zone->name, 'utf-8');
 
     if (defined $zone->ns_group) {
         foreach my $g (@{$nsgroups}) {
@@ -220,7 +220,7 @@ sub print_config_zone ($) {
     push @masters, $nsconf->{master};
     my $tsig = $nsconf->{tsig};
 
-    my $zname = domain_to_ascii($zone->name);
+    my $zname = idn_to_ascii($zone->name, 'utf-8');
 
     print_info(sprintf("%s (%s)", $name, $zname));
 
