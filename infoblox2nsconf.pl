@@ -28,6 +28,8 @@
 ######################################################################
 
 require 5.6.0;
+
+use utf8;
 use warnings;
 use strict;
 use Data::Dumper;
@@ -36,7 +38,6 @@ use Getopt::Long;
 use Infoblox;    # fetched from
                  # https://appliance/api/dist/CPAN/authors/id/INFOBLOX/
 use YAML 'LoadFile';
-use Net::LibIDN ':all';
 
 my $cfdata      = undef;    # Global configuration data
 my $session     = undef;    # Session handle
@@ -99,7 +100,8 @@ sub process_nameserver ($) {
     ## Find zones served by my name server groups
     my @zones = find_zones($hostname);
 
-    open(CONFIG, "> $config") || die "Failed to open output: $config";
+    open(CONFIG, ">:encoding(utf8)", $config)
+      || die "Failed to open output: $config";
     select(CONFIG);
 
     foreach my $z (@zones) {
@@ -172,7 +174,7 @@ sub is_nameserver ($$$) {
     my $zone     = shift;       # reference to zone object to check
     my $nsgroups = shift;       # reference to array of NS groups
 
-    my $zname = idn_to_ascii($zone->name, 'utf-8');
+    my $zname = $zone->dns_name;
 
     if (defined $zone->ns_group) {
         foreach my $g (@{$nsgroups}) {
@@ -213,21 +215,21 @@ sub print_config_zone ($) {
     my $zone   = shift;
     my $nsconf = shift;
 
-    my $name     = $zone->display_domain;
-    my $filename = sprintf("%s/%s", $nsconf->{path}, zonename2filename($name));
-    my @masters  = ();
+    my $dname = $zone->name;
+    my $zname = $zone->dns_name;
+
+    my $filename = sprintf("%s/%s", $nsconf->{path}, zonename2filename($zname));
+    my @masters = ();
 
     push @masters, $nsconf->{master};
     my $tsig = $nsconf->{tsig};
 
-    my $zname = idn_to_ascii($zone->name, 'utf-8');
-
-    print_info(sprintf("%s (%s)", $name, $zname));
+    print_info(sprintf("%s (%s)", $dname, $zname));
 
     if ($nsconf->{format} eq "bind") {
 
-        printf("# %s\n",          $zname);
-        printf("zone \"%s\" {\n", $name);
+        printf("# %s\n",          $dname);
+        printf("zone \"%s\" {\n", $zname);
         printf("\ttype slave;\n");
         printf("\tfile \"%s\";\n", $filename);
 
@@ -244,10 +246,10 @@ sub print_config_zone ($) {
     }
 
     if ($nsconf->{format} eq "nsd") {
-        printf("# %s\n", $zname);
+        printf("# %s\n", $dname);
         printf("zone:\n");
 
-        printf("\tname: \"%s\"\n",     $name);
+        printf("\tname: \"%s\"\n",     $zname);
         printf("\tzonefile: \"%s\"\n", $filename);
 
         foreach my $m (@masters) {
