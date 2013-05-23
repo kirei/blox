@@ -36,6 +36,7 @@ use Getopt::Long;
 use Infoblox;    # fetched from
                  # https://appliance/api/dist/CPAN/authors/id/INFOBLOX/
 use YAML 'LoadFile';
+use Net::IDN::Encode ':all';
 
 my $cfdata      = undef;    # Global configuration data
 my $session     = undef;    # Session handle
@@ -119,8 +120,8 @@ sub find_nsgroups ($) {
     my @nsgroups = $session->search(object => "Infoblox::Grid::DNS::Nsgroup");
 
     foreach my $nsg (@nsgroups) {
-        if (is_secondary($hostname, $nsg->{secondaries})) {
-            $result{ $nsg->{name} } = 1;
+        if (is_secondary($hostname, $nsg->secondaries)) {
+            $result{ $nsg->name } = 1;
         }
     }
 
@@ -171,11 +172,11 @@ sub is_nameserver ($$$) {
     my $zone     = shift;       # reference to zone object to check
     my $nsgroups = shift;       # reference to array of NS groups
 
-    my $zname = $zone->{name};
+    my $zname = domain_to_ascii($zone->name);
 
-    if (defined $zone->{ns_group}) {
+    if (defined $zone->ns_group) {
         foreach my $g (@{$nsgroups}) {
-            if ($zone->{ns_group} eq $g) {
+            if ($zone->ns_group eq $g) {
                 print_debug(
                     sprintf("Include %s - is in one of our NS groups", $zname));
                 return 1;
@@ -186,7 +187,7 @@ sub is_nameserver ($$$) {
         return 0;
     }
 
-    if (is_secondary($hostname, $zone->{secondaries})) {
+    if (is_secondary($hostname, $zone->secondaries)) {
         print_debug(
             sprintf("Include %s - we are explicitly listed as NS", $zname));
         return 1;
@@ -212,18 +213,20 @@ sub print_config_zone ($) {
     my $zone   = shift;
     my $nsconf = shift;
 
-    my $name     = $zone->{display_domain};
+    my $name     = $zone->display_domain;
     my $filename = sprintf("%s/%s", $nsconf->{path}, zonename2filename($name));
     my @masters  = ();
 
     push @masters, $nsconf->{master};
     my $tsig = $nsconf->{tsig};
 
-    print_info(sprintf("%s (%s)", $name, $zone->{name}));
+    my $zname = domain_to_ascii($zone->name);
+
+    print_info(sprintf("%s (%s)", $name, $zname));
 
     if ($nsconf->{format} eq "bind") {
 
-        printf("# %s\n",          $zone->{name});
+        printf("# %s\n",          $zname);
         printf("zone \"%s\" {\n", $name);
         printf("\ttype slave;\n");
         printf("\tfile \"%s\";\n", $filename);
@@ -241,7 +244,7 @@ sub print_config_zone ($) {
     }
 
     if ($nsconf->{format} eq "nsd") {
-        printf("# %s\n", $zone->{name});
+        printf("# %s\n", $zname);
         printf("zone:\n");
 
         printf("\tname: \"%s\"\n",     $name);
