@@ -137,7 +137,7 @@ sub find_zones ($) {
     # find NS groups
     my @nsgroups = find_nsgroups($hostname);
 
-    print_debug("Extrating zones for $hostname");
+    print_debug("Extracting zones for $hostname");
 
     my @result = ();
 
