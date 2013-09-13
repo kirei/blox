@@ -307,7 +307,7 @@ sub wapi_init {
     $curl = WWW::Curl::Easy->new;
 
     $curl->setopt(CURLOPT_HEADER,         0);
-    $curl->setopt(CURLOPT_VERBOSE,        0);
+    $curl->setopt(CURLOPT_VERBOSE,        1) if ($opt_verbose > 2);
     $curl->setopt(CURLOPT_SSL_VERIFYPEER, 0);
     $curl->setopt(
         CURLOPT_USERPWD,
