@@ -126,11 +126,13 @@ sub find_zones ($) {
         "zone_format",        "ns_group",
         "external_primaries", "external_secondaries"
     );
+
     my $json = wapi_get("zone_auth",
         "view=default&_return_fields=" . join(",", @fields));
 
-    my $infoblox_zones = decode_json($json);
+    die "Failed to fetch zones from Infoblox" unless ($json);
 
+    my $infoblox_zones = decode_json($json);
     my @results = ();
 
     foreach my $z (@{$infoblox_zones}) {
