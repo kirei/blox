@@ -133,7 +133,7 @@ sub find_zones ($) {
     die "Failed to fetch zones from Infoblox" unless ($json);
 
     my $infoblox_zones = decode_json($json);
-    my @results = ();
+    my @results        = ();
 
     foreach my $z (@{$infoblox_zones}) {
 
@@ -334,8 +334,10 @@ sub wapi_get ($) {
 
     $curl->setopt(CURLOPT_URL, $url);
 
-    my $response_body;
-    $curl->setopt(CURLOPT_WRITEDATA, \$response_body);
+    my $response_body = '';
+    open(my $fileb, ">", \$response_body);
+    $curl->setopt(CURLOPT_WRITEDATA, $fileb);
+
     my $retcode = $curl->perform;
 
     if ($retcode == 0) {
