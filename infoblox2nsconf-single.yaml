@@ -1,5 +1,6 @@
 infoblox:
-    master: infoblox-host
+    host: infoblox-host
+    port: 443
     username: infoblox-user
     password: infoblox-password
     view: default

@@ -1,0 +1,36 @@
+infoblox:
+    host: infoblox-host
+    port: 443
+    username: infoblox-user
+    password: infoblox-password
+    view: default
+
+nameservers:
+    ns1:
+        hostname: ns1.example.com
+	group: nsgroup1
+        format: bind
+        config: named.conf
+        path: /var/named/slave
+        master: 10.0.0.1
+        tsig: tsig.example.com
+    
+    ns2:
+        hostname: ns2.example.com
+        groups:
+          - nsgroup1
+          - nsgroup2
+          - nsgroup3
+        format: bind
+        config: named.conf
+        path: /var/named/slave
+        master: 10.0.0.1
+        tsig: tsig.example.com
+
+    ns3:
+        hostname: ns3.tripnet.se
+        format: nsd
+        config: nsd-ns3.conf
+        path: /var/named/slave
+        master: 217.28.202.239
+        tsig: ns3.tsig.tripnet.se
