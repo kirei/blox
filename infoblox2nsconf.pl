@@ -99,7 +99,6 @@ sub process_nameserver ($) {
 
     print_info("# exporting data for $hostname");
 
-    ## Find zones served by nameserver
     my @zones = find_zones($nsconf);
 
     open(CONFIG, ">:encoding(utf8)", $config)
@@ -114,7 +113,7 @@ sub process_nameserver ($) {
     close(CONFIG);
 }
 
-# find all zones served by a specific host
+# find all zones served by a specific nameserver and/or name server group(s)
 sub find_zones ($) {
     my $nsconf = shift;
 
@@ -157,7 +156,7 @@ sub find_zones ($) {
     return @results;
 }
 
-# check if hostname serves a specific zone
+# check if host serves a specific zone
 sub is_nameserver ($$) {
     my $zone   = shift;    # reference to IPAM zone data
     my $nsconf = shift;    # reference to nameserver configuration
@@ -169,7 +168,7 @@ sub is_nameserver ($$) {
     push @ns_groups, $nsconf->{group}       if ($nsconf->{group});
     push @ns_groups, @{ $nsconf->{groups} } if ($nsconf->{groups});
 
-    # include zone if it has a listed nameserver group
+    # include zone if nameservers has a listed nameserver group
     if ($zone->{ns_group}) {
         for my $group (@ns_groups) {
             if ($zone->{ns_group} eq $group) {
@@ -208,20 +207,25 @@ sub is_nameserver ($$) {
     }
 
     print_debug(sprintf("Exclude %s - we are not NS", $zname));
+
     return 0;
 }
 
-# Convert FQDN to filename
+# Convert name to FQDN
 #
 sub name2fqdn ($$) {
     my $name = shift;
     my $type = shift;
 
+    # forward zones are already a FQDN
     if ($type eq "FORWARD") {
         return $name;
     }
+
+    # reverse zones are specified as IPv4/IPv6 networks
     if ($type eq "IPV4" or $type eq "IPV6") {
-        my $ip   = new Net::IP($name);
+        my $ip = new Net::IP($name);
+        die "Invalid IPv4/IPv6 network" unless ($ip);
         my $fqdn = $ip->reverse_ip();
         $fqdn =~ s/\.$//;
         return $fqdn;
