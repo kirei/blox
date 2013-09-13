@@ -1,6 +1,6 @@
 #!/usr/bin/perl
 #
-# Copyright (c) 2012 Kirei AB. All rights reserved.
+# Copyright (c) 2012-2013 Kirei AB. All rights reserved.
 #
 # Principal author: Jakob Schlyter <jakob@kirei.se>
 #
@@ -35,13 +35,19 @@ use strict;
 use Data::Dumper;
 use Pod::Usage;
 use Getopt::Long;
-use Infoblox;    # fetched from
-                 # https://appliance/api/dist/CPAN/authors/id/INFOBLOX/
+use WWW::Curl::Easy;
+use Net::IP;
+use JSON;
 use YAML 'LoadFile';
 
 my $cfdata      = undef;    # Global configuration data
 my $session     = undef;    # Session handle
 my $opt_verbose = 0;
+
+my $wapi_version = "v1.2.1";
+
+my $curl = undef;
+my $view = undef;
 
 sub main {
     my $opt_help   = undef;
@@ -61,22 +67,18 @@ sub main {
 
     $cfdata = LoadFile($opt_config);
 
-    unless ($session) {
-        $session = Infoblox::Session->new(
-            master   => $cfdata->{infoblox}->{master},
-            username => $cfdata->{infoblox}->{username},
-            password => $cfdata->{infoblox}->{password}
-        ) || die "Failed to establish session with Infoblox";
-    }
-
-    unless ($session->status_code == 0) {
-        die $session->status_detail();
+    # Use port 443 unless defined
+    if (!defined($cfdata->{infoblox}->{port})) {
+        $cfdata->{infoblox}->{port} = 443;
     }
 
     # Use "default" view unless defined
     if (!defined($cfdata->{infoblox}->{view})) {
         $cfdata->{infoblox}->{view} = "default";
     }
+
+    # initialize WAPI configuration
+    wapi_init();
 
     # support both a single and multiple nameservers
     if ($cfdata->{nameservers}) {
@@ -97,8 +99,8 @@ sub process_nameserver ($) {
 
     print_info("# exporting data for $hostname");
 
-    ## Find zones served by my name server groups
-    my @zones = find_zones($hostname);
+    ## Find zones served by nameserver
+    my @zones = find_zones($nsconf);
 
     open(CONFIG, ">:encoding(utf8)", $config)
       || die "Failed to open output: $config";
@@ -112,101 +114,130 @@ sub process_nameserver ($) {
     close(CONFIG);
 }
 
-# find all NS groups containing a specific host
-sub find_nsgroups ($) {
-    my $hostname = shift;
-
-    print_debug("Finding NS groups for $hostname");
-
-    my %result = ();
-    my @nsgroups = $session->search(object => "Infoblox::Grid::DNS::Nsgroup");
-
-    foreach my $nsg (@nsgroups) {
-        if (is_secondary($hostname, $nsg->secondaries)) {
-            $result{ $nsg->name } = 1;
-        }
-    }
-
-    return keys(%result);
-}
-
 # find all zones served by a specific host
 sub find_zones ($) {
-    my $hostname = shift;
+    my $nsconf = shift;
 
-    # find NS groups
-    my @nsgroups = find_nsgroups($hostname);
+    my $hostname = $nsconf->{hostname};
 
     print_debug("Extracting zones for $hostname");
 
-    my @result = ();
-
-    my @zones = $session->search(
-        object => "Infoblox::DNS::Zone",
-        name   => ".*",
-        view   => $cfdata->{infoblox}->{view},
+    my @fields = (
+        "dns_fqdn",           "disable",
+        "zone_format",        "ns_group",
+        "external_primaries", "external_secondaries"
     );
+    my $json = wapi_get("zone_auth",
+        "view=default&_return_fields=" . join(",", @fields));
 
-    foreach my $z (@zones) {
-        if (is_nameserver($hostname, $z, \@nsgroups)) {
-            push @result, $z;
-        }
+    my $infoblox_zones = decode_json($json);
+
+    my @results = ();
+
+    foreach my $z (@{$infoblox_zones}) {
+
+        my %zone = ();
+
+        # skip disabled zones
+        next if ($z->{disable} eq JSON::true);
+
+        # skip non-FORWARD/IPv4/IPv6 zones
+        next
+          unless ($z->{zone_format} eq "FORWARD"
+            or $z->{zone_format} eq "IPV4"
+            or $z->{zone_format} eq "IPV6");
+
+        $zone{name} = $z->{dns_fqdn};
+        $zone{type} = $z->{zone_format};
+
+        push @results, \%zone
+          if (is_nameserver($z, $nsconf));
     }
 
-    return @result;
-}
-
-# check if hostname is in list of secondaries
-sub is_secondary ($$) {
-    my $hostname    = shift;    # hostname to check
-    my $secondaries = shift;    # reference to array of secondaries
-
-    foreach my $member (@{$secondaries}) {
-        return 1 if ($member->name eq $hostname);
-    }
-
-    return 0;
+    return @results;
 }
 
 # check if hostname serves a specific zone
-sub is_nameserver ($$$) {
-    my $hostname = shift;       # hostname
-    my $zone     = shift;       # reference to zone object to check
-    my $nsgroups = shift;       # reference to array of NS groups
+sub is_nameserver ($$) {
+    my $zone   = shift;    # reference to IPAM zone data
+    my $nsconf = shift;    # reference to nameserver configuration
 
-    my $zname = $zone->dns_name;
+    my $hostname = $nsconf->{hostname};
+    my $zname    = $zone->{dns_fqdn};
 
-    if (defined $zone->ns_group) {
-        foreach my $g (@{$nsgroups}) {
-            if ($zone->ns_group eq $g) {
+    my @ns_groups = ();
+    push @ns_groups, $nsconf->{group}       if ($nsconf->{group});
+    push @ns_groups, @{ $nsconf->{groups} } if ($nsconf->{groups});
+
+    # include zone if it has a listed nameserver group
+    if ($zone->{ns_group}) {
+        for my $group (@ns_groups) {
+            if ($zone->{ns_group} eq $group) {
                 print_debug(
                     sprintf("Include %s - is in one of our NS groups", $zname));
                 return 1;
             }
+
         }
-        print_debug(
-            sprintf("Exclude %s - is not in one of our NS groups", $zname));
-        return 0;
     }
 
-    if (is_secondary($hostname, $zone->secondaries)) {
-        print_debug(
-            sprintf("Include %s - we are explicitly listed as NS", $zname));
-        return 1;
+    # include zone if nameserver is listed as external primary
+    for my $ext (@{ $zone->{external_primaries} }) {
+        if ($ext->{stealth} eq JSON::true) {
+            print_debug(sprintf("Exclude %s - is stealth primary", $zname));
+            return 0;
+
+        }
+        if ($ext->{name} eq $hostname) {
+            print_debug(sprintf("Include %s - is external primary", $zname));
+            return 1;
+        }
+    }
+
+    # include zone if nameserver is listed as external secondary
+    for my $ext (@{ $zone->{external_secondaries} }) {
+        if ($ext->{stealth} eq JSON::true) {
+            print_debug(sprintf("Exclude %s - is stealth secondary", $zname));
+            return 0;
+
+        }
+        if ($ext->{name} eq $hostname) {
+            print_debug(sprintf("Include %s - is external secondary", $zname));
+            return 1;
+        }
     }
 
     print_debug(sprintf("Exclude %s - we are not NS", $zname));
     return 0;
 }
 
-# Convert zone name to filename
+# Convert FQDN to filename
 #
-sub zonename2filename ($) {
+sub name2fqdn ($$) {
     my $name = shift;
+    my $type = shift;
 
-    $name =~ s/\//_/;    # avoid slash in file names
+    if ($type eq "FORWARD") {
+        return $name;
+    }
+    if ($type eq "IPV4" or $type eq "IPV6") {
+        my $ip   = new Net::IP($name);
+        my $fqdn = $ip->reverse_ip();
+        $fqdn =~ s/\.$//;
+        return $fqdn;
+    }
 
-    return $name;
+    return undef;
+}
+
+# Convert FQDN to filename
+#
+sub fqdn2filename ($) {
+    my $filename = shift;
+
+    $filename =~ s/\//_/;    # avoid slash in file names
+
+    return $filename;
 }
 
 # Print zone configuration sniplet
@@ -215,21 +246,22 @@ sub print_config_zone ($) {
     my $zone   = shift;
     my $nsconf = shift;
 
-    my $dname = $zone->name;
-    my $zname = $zone->dns_name;
+    my $name = $zone->{name};
+    my $fqdn = name2fqdn($zone->{name}, $zone->{type});
 
-    my $filename = sprintf("%s/%s", $nsconf->{path}, zonename2filename($zname));
+    my $filename =
+      sprintf("%s/%s", $nsconf->{path}, fqdn2filename($fqdn));
     my @masters = ();
 
     push @masters, $nsconf->{master};
     my $tsig = $nsconf->{tsig};
 
-    print_info(sprintf("%s (%s)", $dname, $zname));
+    print_info(sprintf("- %s (%s)", $name, $fqdn));
 
     if ($nsconf->{format} eq "bind") {
 
-        printf("# %s\n",          $dname);
-        printf("zone \"%s\" {\n", $zname);
+        printf("# %s\n",          $name);
+        printf("zone \"%s\" {\n", $fqdn);
         printf("\ttype slave;\n");
         printf("\tfile \"%s\";\n", $filename);
 
@@ -246,10 +278,10 @@ sub print_config_zone ($) {
     }
 
     if ($nsconf->{format} eq "nsd") {
-        printf("# %s\n", $dname);
+        printf("# %s\n", $name);
         printf("zone:\n");
 
-        printf("\tname: \"%s\"\n",     $zname);
+        printf("\tname: \"%s\"\n",     $fqdn);
         printf("\tzonefile: \"%s\"\n", $filename);
 
         foreach my $m (@masters) {
@@ -265,6 +297,51 @@ sub print_config_zone ($) {
     }
 
     die "Unknown configuration format";
+}
+
+sub wapi_init {
+    $curl = WWW::Curl::Easy->new;
+
+    $curl->setopt(CURLOPT_HEADER,         0);
+    $curl->setopt(CURLOPT_VERBOSE,        0);
+    $curl->setopt(CURLOPT_SSL_VERIFYPEER, 0);
+    $curl->setopt(
+        CURLOPT_USERPWD,
+        join(":",
+            $cfdata->{infoblox}->{username},
+            $cfdata->{infoblox}->{password})
+    );
+}
+
+sub wapi_get ($) {
+    my $command = shift;
+    my $params  = shift;
+
+    my $base = sprintf(
+        "https://%s:%d/wapi/%s",
+        $cfdata->{infoblox}->{host},
+        $cfdata->{infoblox}->{port},
+        $wapi_version
+    );
+    my $url =
+      sprintf("%s/%s?%s&_return_type=json-pretty", $base, $command, $params);
+
+    $curl->setopt(CURLOPT_URL, $url);
+
+    my $response_body;
+    $curl->setopt(CURLOPT_WRITEDATA, \$response_body);
+    my $retcode = $curl->perform;
+
+    if ($retcode == 0) {
+        return $response_body;
+    } else {
+
+        print(  "An error happened: $retcode "
+              . $curl->strerror($retcode) . " "
+              . $curl->errbuf
+              . "\n");
+        return undef;
+    }
 }
 
 # print informational messages
