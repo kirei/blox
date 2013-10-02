@@ -105,7 +105,7 @@ sub process_nameserver ($) {
 
         my @zones = find_zones($nsconf);
 
-        @zones = sort { $a->{name} cmp $b->{name} } @zones;
+        @zones = sort { $a->{fqdn} cmp $b->{fqdn} } @zones;
 
         open(CONFIG, ">:encoding(utf8)", $config)
           or die "Failed to open output: $config";
@@ -132,7 +132,8 @@ sub find_zones ($) {
     print_debug("Extracting zones for $hostname");
 
     my @fields = (
-        "dns_fqdn",           "disable",
+        "dns_fqdn",           "fqdn",
+        "display_domain",     "disable",
         "zone_format",        "ns_group",
         "external_primaries", "external_secondaries"
     );
@@ -152,17 +153,28 @@ sub find_zones ($) {
         # skip disabled zones
         next if ($z->{disable} eq JSON::true);
 
+        #print Dumper($z);
+
         # skip non-FORWARD/IPv4/IPv6 zones
         next
           unless ($z->{zone_format} eq "FORWARD"
             or $z->{zone_format} eq "IPV4"
             or $z->{zone_format} eq "IPV6");
 
-        $zone{name} = $z->{dns_fqdn};
-        $zone{type} = $z->{zone_format};
+        next unless (is_nameserver($z, $nsconf));
 
-        push @results, \%zone
-          if (is_nameserver($z, $nsconf));
+        $zone{type}    = $z->{zone_format};
+        $zone{comment} = $z->{fqdn};
+
+        if (   $z->{zone_format} eq "IPV4"
+            or $z->{zone_format} eq "IPV6")
+        {
+            $zone{fqdn} = $z->{display_domain};
+        } else {
+            $zone{fqdn} = $z->{dns_fqdn};
+        }
+
+        push @results, \%zone;
     }
 
     return @results;
@@ -222,29 +234,6 @@ sub is_nameserver ($$) {
     return 0;
 }
 
-# Convert name to FQDN
-#
-sub name2fqdn ($$) {
-    my $name = shift;
-    my $type = shift;
-
-    # forward zones are already a FQDN
-    if ($type eq "FORWARD") {
-        return $name;
-    }
-
-    # reverse zones are specified as IPv4/IPv6 networks
-    if ($type eq "IPV4" or $type eq "IPV6") {
-        my $ip = new Net::IP($name);
-        die "Invalid IPv4/IPv6 network" unless ($ip);
-        my $fqdn = $ip->reverse_ip();
-        $fqdn =~ s/\.$//;
-        return $fqdn;
-    }
-
-    return undef;
-}
-
 # Convert FQDN to filename
 #
 sub fqdn2filename ($) {
@@ -261,8 +250,8 @@ sub print_config_zone ($) {
     my $zone   = shift;
     my $nsconf = shift;
 
-    my $name = $zone->{name};
-    my $fqdn = name2fqdn($zone->{name}, $zone->{type});
+    my $comment = $zone->{comment};
+    my $fqdn    = $zone->{fqdn};
 
     my $filename =
       sprintf("%s/%s", $nsconf->{path}, fqdn2filename($fqdn));
@@ -271,11 +260,11 @@ sub print_config_zone ($) {
     push @masters, $nsconf->{master};
     my $tsig = $nsconf->{tsig};
 
-    print_info(sprintf("- %s (%s)", $name, $fqdn));
+    print_info(sprintf("- %s (%s)", $comment, $fqdn));
 
     if ($nsconf->{format} =~ /^bind$/i) {
 
-        printf("# %s\n",          $name);
+        printf("# %s\n",          $comment);
         printf("zone \"%s\" {\n", $fqdn);
         printf("\ttype slave;\n");
         printf("\tfile \"%s\";\n", $filename);
@@ -293,7 +282,7 @@ sub print_config_zone ($) {
     }
 
     if ($nsconf->{format} =~ /^nsd$/i) {
-        printf("# %s\n", $name);
+        printf("# %s\n", $comment);
         printf("zone:\n");
 
         printf("\tname: \"%s\"\n",     $fqdn);
