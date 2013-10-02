@@ -105,6 +105,8 @@ sub process_nameserver ($) {
 
         my @zones = find_zones($nsconf);
 
+        @zones = sort { $a->{name} cmp $b->{name} } @zones;
+
         open(CONFIG, ">:encoding(utf8)", $config)
           or die "Failed to open output: $config";
         select(CONFIG);
