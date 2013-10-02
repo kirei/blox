@@ -23,3 +23,7 @@ single (**infoblox2nsconf-single.yaml**) or multiple
 The resulting configuration file will include all active zones with _hostname_
 as non-stealth primary/secondary name server, as well as all zones with any
 listed name server group.
+
+Communication with Infoblox is implemented using the RESTful Web API (WAPI)
+availible in NIOS version 6.6 and later. An older version using the legacy Data
+and Management API can be found in branch DMAPI, but is no longer maintained.
