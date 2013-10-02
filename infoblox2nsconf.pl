@@ -105,7 +105,10 @@ sub process_nameserver ($) {
 
         my @zones = find_zones($nsconf);
 
-        @zones = sort { $a->{fqdn} cmp $b->{fqdn} } @zones;
+        @zones = sort {
+            join(",", reverse(split(/\./, $a->{fqdn}))) cmp
+              join(",", reverse(split(/\./, $b->{fqdn})))
+        } @zones;
 
         open(CONFIG, ">:encoding(utf8)", $config)
           or die "Failed to open output: $config";
