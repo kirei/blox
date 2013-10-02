@@ -96,21 +96,29 @@ sub process_nameserver ($) {
 
     my $hostname = $nsconf->{hostname};
     my $config   = $nsconf->{config};
+    my $format   = $nsconf->{format};
 
-    print_info("# exporting data for $hostname");
+    if (   $format =~ /^bind$/i
+        or $format =~ /^nsd$/i)
+    {
+        print_info("# exporting data for $hostname ($format)");
 
-    my @zones = find_zones($nsconf);
+        my @zones = find_zones($nsconf);
 
-    open(CONFIG, ">:encoding(utf8)", $config)
-      || die "Failed to open output: $config";
-    select(CONFIG);
+        open(CONFIG, ">:encoding(utf8)", $config)
+          or die "Failed to open output: $config";
+        select(CONFIG);
 
-    foreach my $z (@zones) {
-        print_config_zone($z, $nsconf);
+        foreach my $z (@zones) {
+            print_config_zone($z, $nsconf);
+        }
+        select(STDOUT);
+
+        close(CONFIG);
+
+    } else {
+        die "Unknown configuration format: $format";
     }
-    select(STDOUT);
-
-    close(CONFIG);
 }
 
 # find all zones served by a specific nameserver and/or name server group(s)
@@ -178,7 +186,6 @@ sub is_nameserver ($$) {
                     sprintf("Include %s - is in one of our NS groups", $zname));
                 return 1;
             }
-
         }
     }
 
@@ -264,7 +271,7 @@ sub print_config_zone ($) {
 
     print_info(sprintf("- %s (%s)", $name, $fqdn));
 
-    if ($nsconf->{format} eq "bind") {
+    if ($nsconf->{format} =~ /^bind$/i) {
 
         printf("# %s\n",          $name);
         printf("zone \"%s\" {\n", $fqdn);
@@ -283,7 +290,7 @@ sub print_config_zone ($) {
         return;
     }
 
-    if ($nsconf->{format} eq "nsd") {
+    if ($nsconf->{format} =~ /^nsd$/i) {
         printf("# %s\n", $name);
         printf("zone:\n");
 
@@ -302,7 +309,7 @@ sub print_config_zone ($) {
         return;
     }
 
-    die "Unknown configuration format";
+    die "Unknown configuration format: $nsconf->{format}";
 }
 
 sub wapi_init {
